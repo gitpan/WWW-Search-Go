@@ -4,4 +4,8 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
     'NAME'	=> 'WWW::Search::Go',
     'VERSION_FROM' => 'Go.pm', # finds $VERSION
+    'PREREQ_PM'		=> {WWW::Search => 2.0}, # e.g., Module::Name => 1.1
+    ($] >= 5.005 ?    ## Add these new keywords supported since 5.005
+      (ABSTRACT_FROM => 'Go.pm', # retrieve abstract from module
+       AUTHOR     => 'Alain BARBET <alian@alianwebserver.com>') : ()),
 );
