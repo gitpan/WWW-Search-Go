@@ -3,3 +3,6 @@ Revision history for Perl extension WWW::Search::Go.
 0.01  Wed Oct 18 01:07:09 2000
 	- original version; created by h2xs 1.19
 
+1.2 	Tue Oct 2 21:08:28 2001 
+	- Update parser file format for new GoTo format
+	- Update POD documentation

@@ -1,55 +1,10 @@
-#!/usr/local/bin/perl -w
 #
-# Go.pm
-# by Alain Barbet
+# Go.pm by Alain Barbet alian@alianwebserver.com
 # Copyright (C) 2000
-# $Id: Go.pm,v 0.1 2000/10/14 21:22:32 alian Exp $
+# $Id: Go.pm,v 1.2 2001/10/02 21:08:28 alian Exp $
 #
 
 package WWW::Search::Go;
-
-=head1 NAME
-
-WWW::Search::Go - backend class for searching with go.com
-
-=head1 SYNOPSIS
-
-    require WWW::Search;
-    $search = new WWW::Search('Go');
-
-=head1 DESCRIPTION
-
-This class is an Go specialization of WWW::Search.
-It handles making and interpreting Go searches
-F<http://www.Go.com>, older Infoseek search engine.
-
-This class exports no public interface; all interaction should be done
-through WWW::Search objects.
-
-=head1 USAGE EXAMPLE
-
-  use WWW::Search;
-
-  my $oSearch = new WWW::Search('Go');
-  $oSearch->maximum_to_retrieve(100);
-
-  #$oSearch ->{_debug}=1;
-
-  my $sQuery = WWW::Search::escape_query("cgi");
-  $oSearch->gui_query($sQuery);
-
-  while (my $oResult = $oSearch->next_result())
-  {
-        print $oResult->url,"\t",$oResult->title,"\n";
-  }
-
-
-=head1 AUTHOR
-
-C<WWW::Search::Go> is written by Alain BARBET,
-alian@alianwebserver.com
-
-=cut
 
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
@@ -57,7 +12,8 @@ require Exporter;
 @EXPORT = qw();
 @EXPORT_OK = qw();
 @ISA = qw(WWW::Search Exporter);
-$VERSION = '0.1';
+
+$VERSION = ('$Revision: 1.2 $ ' =~ /(\d+\.\d+)/)[0];
 
 use Carp ();
 use strict "vars";
@@ -70,30 +26,23 @@ sub native_setup_search
     	my($self, $native_query, $native_options_ref) = @_;
     	$self->user_agent('alian');
     	$self->{_next_to_retrieve} = 0;
-  	
+	#$self->{_debug} = 1;
+	# options par defaut
 	if (!defined($self->{_options})) {
-	$self->{_options} = {
-	    'col' 	=> 'WW',
-	    'qt' 	=> $native_query,
-	    'pat' 	=> 'ws',
-	    'unc' 	=> 30,
-	    'st'	=> 0,
-	    'fis'	=> 0,
-	    'stu'	=> 10,
-	    'nh'	=> 10,
-	    'svx'	=> WD_next10,
-	    'fys'	=> 0,
-	    'tid'	=> undef,
-	    'ru'	=> 0,
-	    'ggoq'	=> $native_query,
-	    'oq'	=> $native_query,
-	    'search_url' => 'http://www.go.com/Split',
+	$self->{_options} =
+	  {
+	   'Partner' 	=> 'go_home',
+	   'Keywords' 	=> $native_query,
+	   'Go' 	      => 'Search',
+	   'search_url'   => 'http://www.goto.com/d/search/p/go/',
         };}
+
     	my($options_ref) = $self->{_options};
     	if (defined($native_options_ref)) 
     		{
 		# Copy in new options.
-		foreach (keys %$native_options_ref) {$options_ref->{$_} = $native_options_ref->{$_};}
+		foreach (keys %$native_options_ref) 
+		  {$options_ref->{$_} = $native_options_ref->{$_};}
     		}
     	# Process the options.
     	# (Now in sorted order for consistency regarless of hash ordering.)
@@ -101,13 +50,14 @@ sub native_setup_search
     	foreach (sort keys %$options_ref) 
     		{
 		# printf STDERR "option: $_ is " . $options_ref->{$_} . "\n";
-		next if (generic_option($_));
-		$options .= $_ . '=' . $options_ref->{$_} . '&' if (defined $options_ref->{$_});
+ 		next if (generic_option($_));
+		$options .= $_ . '=' . $options_ref->{$_} . '&' 
+		  if (defined $options_ref->{$_});
     		}
 
     	# Finally figure out the url.
-    	$self->{_base_url} = $self->{_next_url} = $self->{_options}{'search_url'} ."?" . $options;
-    	print STDERR $self->{_base_url} . "\n" if ($self->{_debug});
+    	$self->{_base_url} = $self->{_next_url} 
+	  = $self->{_options}{'search_url'} ."?" . $options;
 	}
 
 # private
@@ -125,69 +75,109 @@ sub create_hit
 # private
 sub native_retrieve_some
 	{
- 	my ($self) = @_;      
+ 	my ($self) = @_;
 	my($hits_found) = 0;
 	my ($buf,$langue);
 
  	#fast exit if already done
 	return undef if (!defined($self->{_next_url}));    
-	print STDERR "WWW::Search::Go::native_retrieve_some: fetching " . $self->{_next_url} . "\n" if ($self->{_debug});
+	print STDERR "WWW::Search::Go::native_retrieve_some: fetching " .
+	  $self->{_next_url} . "\n" if ($self->{_debug});
 	my($response) = $self->http_request('GET', $self->{_next_url});
 	$self->{response} = $response;
-	print STDERR "WWW::Search::Go GET  $self->{_next_url} return ",$response->code,"\n"  if ($self->{_debug});
+	print STDERR "WWW::Search::Go GET  $self->{_next_url} return ",
+	  $response->code,"\n"  if ($self->{_debug});
   	if (!$response->is_success) {return undef;};
 	$self->{_next_url} = undef; 
 
     	# parse the output
-    	my($HEADER, $WAIT_HIT, $HITS, $INHIT, $TRAILER, $POST_NEXT) = (1..10);  # order matters
-    	my($state) = ($HEADER);
     	my($url,$titre,$description);
-    	foreach ($self->split_lines($response->content())) {#print $_,"\n";
-        next if m@^$@; # short circuit for blank lines
-	######
-	# HEADER PARSING: find the number of hits
+    	my @l = split(/<a name=\d*>/, $response->content());
+	foreach my $buf (@l)
+	  {
+	    #print STDERR $buf,"\n***************************\n\n\n";		
+	    my @l2 = split(/\n/, $buf);
+	    foreach my $ligne (@l2)
+		{
+		  chomp $ligne;
+		  # url + titre
+		  if ($ligne=~/^\s*<a href="(.*?)" target="_top">(.*?)<\/a>$/)
+		    {
+			($url, $titre) = ($1, $2);
+		    }
+		  # description
+		  elsif ($ligne=~/^\s*<td><font\sface="verdana,sans-serif"\s
+                             size=2><a\shref=".*"\sclass=x\starget="_top">
+			            (.*)<\/a>$/x)
+		    { $description = $1; }
+		}
+	    # Ajout d'une entree
+	    if ($url && $titre && $description)
+		{
+		  print " *** Find hit: \n\turl: $url\n\ttitre: $titre\n"
+		    if ($self->{_debug});
+		  print "\t description: $description\n"
+		    if ($self->{_debug});
+		  $hits_found+=$self->create_hit($url,$titre,$description);
+		}
+	  }
 	#
-	if ($state == $HEADER && m!<b>No results found.  Please revise your search.</b>!) 
-		{
-	    	$self->approximate_result_count(0);
-	    	$state = $TRAILER;
-	    	print STDERR "No result\n"  if ($self->{_debug});
-		}
-	elsif ($state == $HEADER && m!<b>([\d,]*) matches</b>!) 
-		{
-	    	my $nb = $1;
-	    	$nb=~s/,//g;
-	    	$self->approximate_result_count($nb);
-	    	$state = $WAIT_HIT;
-	    	print STDERR "$nb hits found\n"  if $self->{_debug};
-		}
-	elsif ($state == $WAIT_HIT && m{<!-- Web results -->}) {$state=$HITS;}
-	######
-	# HITS PARSING: find each hit
-	#
-	elsif ($state == $HITS && m!<tr><td class="text-md">!) {$state=$INHIT;}
-	elsif ($state == $INHIT && m!<b>\d*. <a href="(.*?)">(.*)</a></b><br />!) {$url=$1;$titre=$2;}
-	elsif ($state == $INHIT && m!(.*)<br /><span class="greylink">.*</span></td>!) {$description=$1;}
-	elsif ($state == $INHIT && m!<spacer type="block" height="7"></td>!) 
-		{
-		$hits_found+=$self->create_hit($url,$titre,$description);
-		undef $url;
-		undef $titre;
-		undef $description;
-		$state=$HITS;
-		}
-
-	######
 	# NEXT URL
 	#
-	elsif ($state == $HITS && m!<a href="([^"]*)">Next&nbsp;10&nbsp;&gt;</a>!) 
-		{
-		$self->{_next_url} = new URI::URL($1, $self->{_base_url});
-		print STDERR "Found next, $1.\n" if $self->{_debug};
-		}
-	}
-
+	# On a le lien dans le dernier bloc analyse precedement
+	my $buf = $l[$#l];
+	if ($buf=~/<BR><table \s width=100%><tr><td \s align=right>
+	    <a \s href="(.*)"><font \s face="verdana,sans-serif" \s size=1><b>/x)
+	  {
+	    $self->{_next_url} = "http://www.goto.com".$1;
+	    print " *** Next url: $self->{_next_url}\n" if ($self->{_debug});
+	  }
+	$self->approximate_result_count($hits_found);
 	return $hits_found;
-	}
+    }
 
 1;
+
+=head1 NAME
+
+WWW::Search::Go - backend class for searching with go.com
+
+=head1 SYNOPSIS
+
+  use WWW::Search;
+
+  my $oSearch = new WWW::Search('Go');
+  $oSearch->maximum_to_retrieve(100);
+
+  #$oSearch ->{_debug}=1;
+
+  my $sQuery = WWW::Search::escape_query("cgi");
+  $oSearch->gui_query($sQuery);
+
+  while (my $oResult = $oSearch->next_result())
+  {
+    print $oResult->url,"\t",$oResult->title,"\n";
+  }
+
+=head1 DESCRIPTION
+
+This class is an Go specialization of WWW::Search.
+It handles making and interpreting Go searches
+F<http://www.Go.com>, older Infoseek search engine.
+
+This class exports no public interface; all interaction should be done
+through WWW::Search objects.
+
+On 03/10/2001, Go use GoTo Search Engine. This module is done for
+previous versions compatibility.
+
+=head1 BUGS
+
+Go didn't define a total number of result.
+
+=head1 AUTHOR
+
+C<WWW::Search::Go> is written by Alain BARBET,
+alian@alianwebserver.com
+
+=cut
